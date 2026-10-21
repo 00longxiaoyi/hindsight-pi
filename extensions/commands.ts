@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { bootstrap, clearHandles, ensureBank, getBankInsights, getHandles } from "./client.js";
+import { bootstrap, clearHandles, EMPTY_BANK_INSIGHTS, getBankInsights, getHandles, getServerCapabilities } from "./client.js";
 import { clearCachedContext, formatLastRecallInspection, renderCachedContext } from "./context.js";
 import {
   type BankStrategy,
@@ -471,8 +471,8 @@ const statusText = async (ctx: ExtensionContext): Promise<string> => {
       ? "manual"
       : "derived";
   const insights = config.enabled
-    ? await getBankInsights(config.baseUrl, config.apiKey, bankId).catch(() => ({ profile: null, directivesCount: null, mentalModelsCount: null, documentsCount: null, entitiesCount: null }))
-    : { profile: null, directivesCount: null, mentalModelsCount: null, documentsCount: null, entitiesCount: null };
+    ? await getBankInsights(config.baseUrl, config.apiKey, bankId).catch(() => EMPTY_BANK_INSIGHTS)
+    : EMPTY_BANK_INSIGHTS;
   const disposition = insights.profile?.disposition
     ? `skepticism=${insights.profile.disposition.skepticism ?? "?"}, literalism=${insights.profile.disposition.literalism ?? "?"}, empathy=${insights.profile.disposition.empathy ?? "?"}`
     : "none";
@@ -498,6 +498,8 @@ const statusText = async (ctx: ExtensionContext): Promise<string> => {
     `Directives: ${insights.directivesCount ?? "unknown"}`,
     `Mental models: ${insights.mentalModelsCount ?? "unknown"}`,
     `Documents: ${insights.documentsCount ?? "unknown"}`,
+    `Memories: ${insights.factCount ?? "unknown"}`,
+    `Server API: ${insights.apiVersion ?? "unknown"}`,
     `Entities: ${insights.entitiesCount ?? "unknown"}`,
     `Strategy: ${config.bankStrategy}`,
     `Recall mode: ${config.recallMode}`,
@@ -633,13 +635,19 @@ export const registerCommands = (pi: ExtensionAPI): void => {
 
       try {
         const handles = await bootstrap(config, ctx.cwd);
-        await ensureBank(handles.client, handles.bankId, handles.config);
         await handles.client.recall(handles.bankId, "health check", { budget: "low", maxTokens: 128 });
+        const capabilities = await getServerCapabilities(config.baseUrl, config.apiKey);
         const insights = await getBankInsights(config.baseUrl, config.apiKey, handles.bankId).catch(() => null);
         checks.push(`active_bank: ${handles.bankId}`);
+        checks.push(`server_api: ${capabilities.apiVersion ?? "unknown"}`);
+        checks.push(`bank_config_api: ${capabilities.supportsBankConfig ? "yes" : "no (legacy profile endpoint)"}`);
+        if (insights?.apiVersion && capabilities.apiVersion !== insights.apiVersion) {
+          checks.push(`warning: /version reports ${capabilities.apiVersion} but bank APIs report ${insights.apiVersion}`);
+        }
         checks.push(`connectivity: ok`);
         if (insights) {
           checks.push(`bank_name: ${insights.profile?.name ?? handles.bankId}`);
+          checks.push(`memories: ${insights.factCount ?? "unknown"}`);
           checks.push(`directives: ${insights.directivesCount ?? "unknown"}`);
           checks.push(`mental_models: ${insights.mentalModelsCount ?? "unknown"}`);
           checks.push(`documents: ${insights.documentsCount ?? "unknown"}`);

@@ -197,7 +197,7 @@ export const registerTools = (pi: ExtensionAPI): void => {
     async execute(_toolCallId: string) {
       const handles = await ensureHandles();
       const insights = await getBankInsights(handles.config.baseUrl, handles.config.apiKey, handles.bankId);
-      const profile = insights.profile ?? await handles.client.getBankProfile(handles.bankId);
+      const profile = insights.profile;
       const disposition = profile?.disposition
         ? `skepticism=${profile.disposition.skepticism ?? "?"}, literalism=${profile.disposition.literalism ?? "?"}, empathy=${profile.disposition.empathy ?? "?"}`
         : "none";
@@ -207,6 +207,7 @@ export const registerTools = (pi: ExtensionAPI): void => {
         `Name: ${profile?.name ?? handles.bankId}`,
         `Background: ${profile?.background ?? ""}`,
         `Disposition: ${disposition}`,
+        `Memories: ${insights.factCount ?? "unknown"}`,
         `Directives: ${insights.directivesCount ?? "unknown"}`,
         `Mental models: ${insights.mentalModelsCount ?? "unknown"}`,
         `Documents: ${insights.documentsCount ?? "unknown"}`,
@@ -215,6 +216,7 @@ export const registerTools = (pi: ExtensionAPI): void => {
         `Global bank: ${handles.config.globalBankId ?? "none"}`,
         `Linked hosts: ${linked}`,
         `Base URL: ${handles.config.baseUrl}`,
+        `Server API: ${insights.apiVersion ?? "unknown"}`,
         `Recall mode: ${handles.config.recallMode}`,
         `Memory query mode: fresh recall across all memory types for auto-context`,
       ].join("\n");
@@ -222,10 +224,12 @@ export const registerTools = (pi: ExtensionAPI): void => {
         content: [{ type: "text", text }],
         details: {
           profile,
+          factCount: insights.factCount,
           directivesCount: insights.directivesCount,
           mentalModelsCount: insights.mentalModelsCount,
           documentsCount: insights.documentsCount,
           entitiesCount: insights.entitiesCount,
+          apiVersion: insights.apiVersion,
           linkedHosts: handles.linked.map((h) => ({ name: h.name, bankId: h.bankId })),
         },
       };

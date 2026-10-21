@@ -53,6 +53,18 @@ Useful server example:
 http://<your-hindsight-host>:8888
 ```
 
+## Hindsight server compatibility
+
+Works with the current Hindsight API (0.5.5+ / `api_version` 1.0.0, bank config API) and with older deployments:
+
+- Current servers: bank existence is read from `GET .../banks/{bank_id}/config` and banks are created with `PUT .../banks/{bank_id}`.
+  The old profile endpoint answers `410 Gone` there, so it is never used as an existence probe.
+- Older servers: falls back to `GET .../banks/{bank_id}/profile` and, as a last resort, `GET /v1/default/banks`.
+- Bank creation only runs when a probe positively reports the bank missing, so a misbehaving server cannot overwrite an existing bank's `reflect_mission`.
+
+`/hindsight:doctor` prints the detected `server_api` version and whether the bank config API is available.
+`HINDSIGHT_API_URL` is accepted as an alias for `HINDSIGHT_BASE_URL`.
+
 ## Recommended memory setup
 
 For most users:

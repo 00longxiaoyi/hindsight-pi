@@ -33,6 +33,34 @@ export const expandTagPlaceholders = (tags: string[] | null | undefined, config:
   return [...new Set(tags.map((tag) => values[tag] ?? tag).filter(Boolean))];
 };
 
+export const OBSERVATION_SCOPE_KEYWORDS = ["per_tag", "combined", "all_combinations", "shared"] as const;
+
+/**
+ * The Hindsight API only accepts observation scopes as a strategy keyword or a
+ * list of scope groups (`string[][]`). A flat `string[]` (a common hand-written
+ * config mistake) is rejected with a 422, so coerce it into a single group and
+ * drop empty groups, which are equally invalid.
+ */
+export const normalizeObservationScopes = (scopes: unknown): HindsightConfig["observationScopes"] => {
+  if (scopes === null || scopes === undefined) return null;
+  if (typeof scopes === "string") {
+    return (OBSERVATION_SCOPE_KEYWORDS as readonly string[]).includes(scopes)
+      ? scopes as HindsightConfig["observationScopes"]
+      : null;
+  }
+  if (!Array.isArray(scopes)) return null;
+  if (scopes.every((scope) => typeof scope === "string")) {
+    const flat = [...new Set((scopes as string[]).filter((tag) => tag.trim() !== ""))];
+    return flat.length > 0 ? [flat] : null;
+  }
+  const groups = scopes
+    .map((group) => Array.isArray(group)
+      ? [...new Set(group.filter((tag): tag is string => typeof tag === "string" && tag.trim() !== ""))]
+      : [])
+    .filter((group) => group.length > 0);
+  return groups.length > 0 ? groups : null;
+};
+
 export const buildAutomaticTags = (config: Pick<HindsightConfig, "constantTags" | "projectName">, ctx: ScopeContext, storeMethod: "auto" | "tool"): string[] => {
   const cwd = cleanPath(ctx.cwd);
   const session = ctx.sessionId || "unknown";
@@ -49,8 +77,8 @@ export const buildAutomaticTags = (config: Pick<HindsightConfig, "constantTags" 
 };
 
 export const expandObservationScopes = (config: Pick<HindsightConfig, "observationScopes" | "projectName">, ctx: ScopeContext): HindsightConfig["observationScopes"] => {
-  const scopes = config.observationScopes;
-  if (!Array.isArray(scopes)) return scopes;
+  const normalized = normalizeObservationScopes(config.observationScopes);
+  if (!Array.isArray(normalized)) return normalized;
   const values = placeholderValues(config, ctx);
-  return scopes.map((group) => group.map((tag) => values[tag] ?? tag));
+  return normalized.map((group) => group.map((tag) => values[tag] ?? tag));
 };

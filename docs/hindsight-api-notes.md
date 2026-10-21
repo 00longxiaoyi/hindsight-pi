@@ -2,6 +2,10 @@
 
 Status: verified from public Hindsight docs and SDK guide on 2026-04-19.
 
+> The `## Bank APIs` section below documents the **pre-0.5.5** surface and is kept
+> for history. Read ["Server compatibility: Hindsight 0.5.5+ (API 1.0)"](#server-compatibility-hindsight-055-api-10)
+> at the end of this file for what the extension actually calls today.
+
 Primary sources:
 - `https://docs.hindsight.vectorize.io/typescript-sdk`
 - `https://docs.hindsight.vectorize.io/retain`
@@ -66,7 +70,8 @@ const bank = await client.createBank('customer-support-agent', {
   },
 });
 
-const profile = await client.getBankProfile('my-assistant');
+// current servers (>= 0.5.5): the profile endpoint is gone
+const bankConfig = await client.getBankConfig('my-assistant'); // { bank_id, config, overrides }
 ```
 
 Verified response/interface snippets from docs:
@@ -86,7 +91,7 @@ interface BankProfileResponse {
 
 Extension relevance:
 - `createBank` useful for bootstrap when configured bank does not exist yet
-- `getBankProfile` useful for `/hindsight:status` and `/hindsight:doctor`
+- `getBankConfig` (replaces `getBankProfile`) useful for `/hindsight:status` and `/hindsight:doctor`
 - `background` is best fit for durable bank purpose / mission
 - disposition traits exist, but MVP should treat them as optional config, not required runtime behavior
 
@@ -281,7 +286,7 @@ Implications for pi extension:
 Verified enough to depend on directly in MVP:
 - `HindsightClient`
 - `createBank`
-- `getBankProfile`
+- `getBankConfig` (bank profile endpoints were removed in 0.5.5+)
 - `retain`
 - `retainBatch`
 - `recall`
@@ -302,3 +307,48 @@ Not sufficiently confirmed from current docs, so treat as optional or inspect pa
 3. Use `recall` for injected context and raw search tool.
 4. Use `reflect` for explicit synthesis tool, not default per-turn injection.
 5. Keep mental models as later optimization, not MVP dependency.
+
+## Server compatibility: Hindsight 0.5.5+ (API 1.0)
+
+Verified against a live deployment (`/version` -> `api_version: 1.0.0`,
+`features.bank_config_api: true`) on 2026-10-21.
+
+Endpoints the extension used to call are gone or changed shape. The current API:
+
+| Operation | Before | Now |
+|---|---|---|
+| Probe bank exists | `GET /v1/default/banks/{bank_id}` / `.../profile` | `GET /v1/default/banks/{bank_id}/config` (profile answers **410 Gone**, plain bank GET answers **405**) |
+| Create bank | `POST /v1/default/banks` | `PUT /v1/default/banks/{bank_id}` (create-or-update; `background` is a deprecated alias for `reflect_mission`) |
+| Bank profile fields | `name`, `background`, `disposition` | read from `GET .../config` (`disposition_skepticism`, `disposition_literalism`, `disposition_empathy`, `reflect_mission`); display `name`/`fact_count` come from `GET /v1/default/banks` |
+| Recall | `POST .../memories/recall` | unchanged |
+| Retain batch | `POST .../memories` | unchanged |
+
+### Error signatures worth knowing
+
+- `410 {"detail":"The bank profile endpoints have been removed..."}` — old profile
+  endpoint on a new server. Never treat this as "bank missing".
+- `405 {"detail":"Method Not Allowed"}` — `GET /v1/default/banks/{bank_id}` is no
+  longer readable.
+- `404 {"detail":"Bank 'x' not found"}` — the route exists and the bank is absent.
+- `404 {"detail":"Not Found"}` — the **route** is absent (older server), not the bank.
+- `422` on retain with `"observation_scopes"` — scopes must be a strategy keyword
+  (`per_tag`, `combined`, `all_combinations`, `shared`) or a list of tag groups
+  (`string[][]`). A flat `string[]` is rejected.
+
+### How this extension adapts
+
+`extensions/client.ts` probes capabilities once per base URL:
+
+1. `GET /version` -> `features.bank_config_api` decides whether to probe with
+   `.../config` (current) or `.../profile` (legacy).
+2. If that probe returns an "unknown" answer (405/410/501, or a route-level 404),
+   the other generation's probe runs.
+3. If both are unknown, `GET /v1/default/banks?q=<bank_id>` is used as a
+   non-destructive last resort.
+4. Bank creation only happens when a probe positively reports the bank missing,
+   so an unreachable or unfamiliar server can never overwrite an existing bank's
+   `reflect_mission`.
+5. Observation scopes are normalized to `string[][]` before they reach the API.
+
+`@vectorize-io/hindsight-client` is pinned at `^1.0.0`; the 1.0.0 SDK keeps every
+method this extension uses and marks `getBankProfile` as removed server-side.

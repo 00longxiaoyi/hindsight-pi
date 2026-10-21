@@ -134,6 +134,7 @@ Proposed env var contract:
 |---|---|
 | `HINDSIGHT_API_KEY` | `apiKey` |
 | `HINDSIGHT_BASE_URL` | `baseUrl` |
+| `HINDSIGHT_API_URL` | `baseUrl` (alias used by Hindsight deployment docs) |
 | `HINDSIGHT_BANK_ID` | `bankId` |
 | `HINDSIGHT_GLOBAL_BANK_ID` | `globalBankId` |
 | `HINDSIGHT_BANK_STRATEGY` | `bankStrategy` |
@@ -157,6 +158,7 @@ Proposed env var contract:
 | `HINDSIGHT_SHOW_RETAIN_INDICATOR` | `host.pi.showRetainIndicator` |
 | `HINDSIGHT_INDICATORS_IN_CONTEXT` | `host.pi.indicatorsInContext` |
 | `HINDSIGHT_AUTO_CREATE_BANK` | `host.pi.autoCreateBank` |
+| `HINDSIGHT_OBSERVATION_SCOPES` | `host.pi.observationScopes` (JSON: strategy keyword or list of tag groups) |
 
 ## Defaults Summary
 

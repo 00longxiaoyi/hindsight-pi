@@ -153,6 +153,31 @@ describe("config file resolution", () => {
   });
 });
 
+describe("base url env vars", () => {
+  it("accepts HINDSIGHT_API_URL as an alias for HINDSIGHT_BASE_URL", async () => {
+    const previousBase = process.env.HINDSIGHT_BASE_URL;
+    const previousApi = process.env.HINDSIGHT_API_URL;
+    const previousEnabled = process.env.HINDSIGHT_ENABLED;
+    try {
+      delete process.env.HINDSIGHT_BASE_URL;
+      delete process.env.HINDSIGHT_ENABLED;
+      process.env.HINDSIGHT_API_URL = "http://192.168.3.247:8888";
+      await rm(CONFIG_PATH, { force: true });
+      const config = await resolveConfig();
+      expect(config.baseUrl).toBe("http://192.168.3.247:8888");
+      expect(config.enabled).toBe(true);
+    } finally {
+      const restore = (key: string, value: string | undefined) => {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      };
+      restore("HINDSIGHT_BASE_URL", previousBase);
+      restore("HINDSIGHT_API_URL", previousApi);
+      restore("HINDSIGHT_ENABLED", previousEnabled);
+    }
+  });
+});
+
 describe("bank id derivation", () => {
   it("sanitizes unsafe bank ids", () => {
     expect(sanitizeBankId("My Repo/Feature Branch")).toBe("my-repo-feature-branch");

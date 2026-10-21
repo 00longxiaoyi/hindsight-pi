@@ -14,7 +14,7 @@ export type RetainMode = "response" | "step-batch" | "both" | "off";
 export type RecallDisplayMode = "grouped" | "unified";
 export type RecallLongQueryBehavior = "skip" | "truncate";
 export type AutoRecallTagsMatch = "any" | "all" | "any_strict" | "all_strict";
-export type ObservationScopes = "combined" | "per_tag" | "all_combinations" | string[][] | null;
+export type ObservationScopes = "combined" | "per_tag" | "all_combinations" | "shared" | string[][] | null;
 
 export interface HostConfig {
   enabled?: boolean;
@@ -435,9 +435,10 @@ export const resolveConfig = async (cwd?: string): Promise<HindsightConfig> => {
   });
 
   const config: HindsightConfig = {
-    enabled: boolOr(process.env.HINDSIGHT_ENABLED ?? host.enabled, Boolean(process.env.HINDSIGHT_API_KEY || file?.apiKey || file?.api_key || process.env.HINDSIGHT_BASE_URL || file?.baseUrl || file?.api_url)),
+    enabled: boolOr(process.env.HINDSIGHT_ENABLED ?? host.enabled, Boolean(process.env.HINDSIGHT_API_KEY || file?.apiKey || file?.api_key || process.env.HINDSIGHT_BASE_URL || process.env.HINDSIGHT_API_URL || file?.baseUrl || file?.api_url)),
     apiKey: process.env.HINDSIGHT_API_KEY ?? file?.apiKey ?? file?.api_key,
-    baseUrl: normalizeBaseUrl(process.env.HINDSIGHT_BASE_URL ?? file?.baseUrl ?? file?.api_url ?? DEFAULT_BASE_URL),
+    // HINDSIGHT_API_URL is the name Hindsight's own deployment docs use.
+    baseUrl: normalizeBaseUrl(process.env.HINDSIGHT_BASE_URL ?? process.env.HINDSIGHT_API_URL ?? file?.baseUrl ?? file?.api_url ?? DEFAULT_BASE_URL),
     bankId: process.env.HINDSIGHT_BANK_ID ?? file?.bankId ?? file?.bank_id,
     globalBankId: process.env.HINDSIGHT_GLOBAL_BANK_ID ?? file?.globalBankId ?? file?.global_bank,
     bankStrategy: normalizeBankStrategy(process.env.HINDSIGHT_BANK_STRATEGY ?? file?.bankStrategy ?? ((process.env.HINDSIGHT_BANK_ID ?? file?.bankId ?? file?.bank_id) ? "manual" : "per-repo")),
