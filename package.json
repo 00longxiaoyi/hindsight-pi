@@ -13,11 +13,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/walodayeet/pi-hindsight.git"
+    "url": "git+https://github.com/00longxiaoyi/hindsight-pi.git"
   },
-  "homepage": "https://github.com/walodayeet/pi-hindsight#readme",
+  "homepage": "https://github.com/00longxiaoyi/hindsight-pi#readme",
   "bugs": {
-    "url": "https://github.com/walodayeet/pi-hindsight/issues"
+    "url": "https://github.com/00longxiaoyi/hindsight-pi/issues"
   },
   "files": [
     "extensions",

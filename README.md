@@ -25,10 +25,17 @@ pi install npm:@walodayeet/hindsight-pi
 From GitHub:
 
 ```bash
-pi install git:github.com/walodayeet/pi-hindsight
+pi install git:github.com/00longxiaoyi/hindsight-pi
 ```
 
-Local dev:
+From a local build (tarball produced by `npm pack`):
+
+```bash
+cd ~/.pi/agent/npm
+npm i /path/to/walodayeet-hindsight-pi-0.4.1.tgz
+```
+
+Local dev (loads the working tree directly, no copy):
 
 ```bash
 npm install
