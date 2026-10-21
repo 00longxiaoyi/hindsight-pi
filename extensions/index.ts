@@ -5,14 +5,15 @@ import { registerCommands } from "./commands.js";
 import { getRecallMode, resolveConfig } from "./config.js";
 import { clearCachedContext, countCachedContext, getLastRecallErrorReason, previewCachedContext, refreshContextForPrompt, renderCachedContext } from "./context.js";
 import { registerTools } from "./tools.js";
-import { WriteScheduler } from "./upload.js";
-import { recordFlushFailure, recordFlushSuccess } from "./flush-state.js";
+import { shouldFlushOn } from "./flush-policy.js";
+import { FlushRunner } from "./flush-runner.js";
+import { flushSessionQueue } from "./flush-session.js";
 import { resetHookStats, setHookStat } from "./hooks.js";
 import { sessionRetained, sessionTags } from "./meta.js";
 import { filterHindsightProviderMessages, HINDSIGHT_RECALL_STATUS_TYPE, HINDSIGHT_RETAIN_STATUS_TYPE } from "./provider-filter.js";
 import { createRecallCustomMessage, HINDSIGHT_RECALL_CUSTOM_TYPE } from "./recall-message.js";
 import { deriveRecallQuery, isContinuePrompt } from "./recall-query.js";
-import { appendQueueRecord, deleteQueue, readQueueRecords } from "./queue.js";
+import { appendQueueRecord } from "./queue.js";
 import { prepareRetainEntry } from "./retain/prepare.js";
 import { buildAutomaticTags, expandObservationScopes } from "./retain/tags.js";
 import { deriveWorkspaceSessionName } from "./session.js";
@@ -38,8 +39,9 @@ export default function hindsightMemory(pi: ExtensionAPI): void {
   let initializing: Promise<void> | null = null;
   let turnCount = 0;
   let lastContextTurn = 0;
-  let scheduler: WriteScheduler | null = null;
-  let retainInFlight: Promise<void> = Promise.resolve();
+  let flushRunner: FlushRunner | null = null;
+  let flushSessionId: string | null = null;
+  let turnsSinceFlush = 0;
   let pendingRecallIndicator: { config: any; content: string; details: Record<string, unknown> } | null = null;
   let currentUi: { notify(message: string, level?: string): void } | null = null;
   let lastMeaningfulRecallQuery: string | null = null;
@@ -98,12 +100,6 @@ export default function hindsightMemory(pi: ExtensionAPI): void {
     return box;
   });
 
-  pi.on("context", async (event: any) => {
-    const messages = Array.isArray(event.messages) ? event.messages : [];
-    const filtered = filterHindsightProviderMessages(messages);
-    if (filtered.length !== messages.length) return { messages: filtered };
-  });
-
   registerTools(pi);
   registerCommands(pi);
 
@@ -121,9 +117,10 @@ export default function hindsightMemory(pi: ExtensionAPI): void {
         pendingInspectionHint = "";
         pendingToolHint = "";
         recallInjectedForCurrentAgent = false;
-        scheduler?.reset();
-        scheduler = null;
-        retainInFlight = Promise.resolve();
+        flushRunner?.reset();
+        flushRunner = null;
+        flushSessionId = null;
+        turnsSinceFlush = 0;
         resetHookStats();
         setHookStat("sessionStart", { firedAt: new Date().toISOString(), result: "ok" });
 
@@ -134,15 +131,26 @@ export default function hindsightMemory(pi: ExtensionAPI): void {
           return;
         }
 
-        scheduler = new WriteScheduler(config.writeFrequency, ({ handles, summary }) => {
-          emitIndicator(handles.config, RETAIN_MESSAGE_TYPE, `retain successful for bank ${handles.bankId}`, {
+        const runner = new FlushRunner(async () => {
+          const current = getHandles();
+          if (!current || !flushSessionId) return;
+          const { flushed } = await flushSessionQueue(current, flushSessionId);
+          if (flushed === 0) return;
+          turnsSinceFlush = 0;
+          setHookStat("retain", { firedAt: new Date().toISOString(), result: "ok", detail: `flushed:${flushed}` });
+          emitIndicator(current.config, RETAIN_MESSAGE_TYPE, `retain successful for bank ${current.bankId}`, {
             mode: "saved",
-            bankId: handles.bankId,
-            itemsCount: summary.itemsCount,
-            previews: summary.previews,
-            fullText: summary.fullText,
+            bankId: current.bankId,
+            itemsCount: flushed,
+          });
+        }, (error) => {
+          setHookStat("retain", {
+            firedAt: new Date().toISOString(),
+            result: "failed",
+            detail: error instanceof Error ? error.message : String(error),
           });
         });
+        flushRunner = runner;
         const handles = await bootstrap(config, ctx.cwd);
         pi.setSessionName(deriveWorkspaceSessionName(ctx.cwd));
         setHookStat("sessionStart", { firedAt: new Date().toISOString(), result: "ok", detail: `bank=${handles.bankId}` });
@@ -315,32 +323,6 @@ export default function hindsightMemory(pi: ExtensionAPI): void {
     }
   });
 
-  const flushQueuedSession = async (ctx: any): Promise<void> => {
-    const handles = getHandles();
-    if (!handles) return;
-    const sessionId = getSessionDocumentId(ctx);
-    const { records } = readQueueRecords(sessionId, "auto");
-    if (records.length === 0) return;
-    try {
-      await handles.client.retainBatch(handles.bankId, records.map((record) => ({
-        content: record.content,
-        context: record.context,
-        tags: record.tags,
-        metadata: record.metadata,
-        timestamp: record.timestamp,
-        document_id: record.document_id,
-        update_mode: record.update_mode,
-        observation_scopes: record.observation_scopes,
-      })), { async: false });
-      deleteQueue(sessionId, "auto");
-      recordFlushSuccess();
-    } catch (error) {
-      recordFlushFailure(error);
-      setHookStat("retain", { firedAt: new Date().toISOString(), result: "failed", detail: error instanceof Error ? error.message : String(error) });
-      throw error;
-    }
-  };
-
   pi.on("message_end", async (event: any, ctx: any) => {
     const handles = getHandles();
     if (!handles || !handles.config.saveMessages) return;
@@ -366,18 +348,40 @@ export default function hindsightMemory(pi: ExtensionAPI): void {
       update_mode: "append",
       observation_scopes: expandObservationScopes(handles.config, { cwd: ctx.cwd, sessionId, parentId: getParentSessionId(ctx) }) ?? undefined,
     }, "auto");
+    flushSessionId = sessionId;
     setHookStat("retain", { firedAt: new Date().toISOString(), result: "ok", detail: "queued:message_end" });
+    if (shouldFlushOn({ frequency: handles.config.writeFrequency, event: "message", turnsSinceLastFlush: turnsSinceFlush })) {
+      flushRunner?.request();
+    }
   });
 
-  pi.on("agent_end", async () => {
+  pi.on("agent_end", async (_event: any, ctx: any) => {
     recallInjectedForCurrentAgent = false;
     pendingRecallQuery = null;
     pendingRecallConfig = null;
     pendingInspectionHint = "";
     pendingToolHint = "";
+
+    const handles = getHandles();
+    if (!handles) return;
+    if (ctx) flushSessionId = getSessionDocumentId(ctx);
+    turnsSinceFlush += 1;
+    if (!shouldFlushOn({ frequency: handles.config.writeFrequency, event: "turn", turnsSinceLastFlush: turnsSinceFlush })) return;
+    if (ctx) setStatus(ctx, "syncing");
+    // Fire-and-forget: retainBatch waits on server-side extraction, so awaiting
+    // it here would stall the UI at the end of every turn.
+    flushRunner?.request();
+    Promise.resolve(flushRunner?.whenIdle()).then(() => { if (ctx && getHandles()) setStatus(ctx, "connected"); });
   });
 
-  const flush = async (_event?: any, ctx?: any) => { await retainInFlight; await scheduler?.flush(); if (ctx) await flushQueuedSession(ctx); };
+  // Boundary flushes wait for the queue to reach the server: this is the
+  // durability floor, and it runs regardless of writeFrequency.
+  const flush = async (_event?: any, ctx?: any) => {
+    if (ctx) flushSessionId = getSessionDocumentId(ctx);
+    if (!flushRunner || !flushSessionId) return;
+    flushRunner.request();
+    await flushRunner.whenIdle();
+  };
   pi.on("session_shutdown", flush);
   pi.on("session_before_switch", flush);
   pi.on("session_before_fork", flush);

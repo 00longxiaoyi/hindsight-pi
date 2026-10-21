@@ -214,7 +214,6 @@ const runSetupWizard = async (ctx: ExtensionContext): Promise<void> => {
     ? await ctx.ui.input("Bank ID", existing.bankId ?? "")
     : "";
   const recallModeInput = await ctx.ui.select("Recall mode", ["hybrid", "context", "tools", "off"]);
-  const retainModeInput = await ctx.ui.select("Retain mode", ["response", "step-batch", "both", "off"]);
 
   await saveConfig({
     enabled,
@@ -224,8 +223,6 @@ const runSetupWizard = async (ctx: ExtensionContext): Promise<void> => {
     bankStrategy: bankStrategyInput === "Use fixed bank ID" ? "manual" : "per-repo",
     recallMode: normalizeRecallMode(recallModeInput) as RecallMode,
     injectionFrequency: "every-turn",
-    retainMode: retainModeInput as any,
-    stepRetainThreshold: 5,
     writeFrequency: "turn",
     showRecallIndicator: true,
     showRetainIndicator: true,
@@ -318,11 +315,7 @@ const runRetainWizard = async (ctx: ExtensionContext): Promise<void> => {
   const existing = await resolveConfig(ctx.cwd);
   const draft = await runStepLoop(ctx, [
     async (_state, allowBack) => {
-      const result = await inputWizardAction(ctx, "Step retain threshold", String(existing.stepRetainThreshold), "5", allowBack);
-      return result.kind === "next" ? { kind: "next", value: { stepThresholdInput: result.value } } : result;
-    },
-    async (_state, allowBack) => {
-      const result = await selectWizardAction(ctx, "Write frequency\nRecommended: turn for simplest behavior; async for non-blocking saves", uniqueOptions(String(existing.writeFrequency), ["turn", "async", "session", "5"]), allowBack);
+      const result = await selectWizardAction(ctx, "Write frequency\nturn: flush after every turn (default)\nsession: flush only on session switch or exit\nasync: flush after every message (most requests)\nN: flush every N turns", uniqueOptions(String(existing.writeFrequency), ["turn", "session", "async", "5"]), allowBack);
       return result.kind === "next" ? { kind: "next", value: { writeFrequencyInput: result.value } } : result;
     },
     async (_state, allowBack) => {
@@ -353,7 +346,6 @@ const runRetainWizard = async (ctx: ExtensionContext): Promise<void> => {
   if (!draft) return;
 
   await saveConfig({
-    stepRetainThreshold: parsePositiveInt(draft.stepThresholdInput, existing.stepRetainThreshold),
     writeFrequency: parseWriteFrequency(draft.writeFrequencyInput, existing.writeFrequency),
     saveMessages: draft.saveMessages,
     showRetainIndicator: draft.showRetainIndicator,
@@ -376,7 +368,6 @@ const runConfigTui = async (ctx: ExtensionContext): Promise<void> => {
       `Bank strategy: ${config.bankStrategy}`,
       `Bank ID: ${config.bankId ?? "(none)"}`,
       `Recall mode: ${config.recallMode}`,
-      `Retain mode: ${config.retainMode}`,
       `Advanced recall settings…`,
       `Advanced retain settings…`,
       `Show config sources`,
@@ -422,9 +413,6 @@ const runConfigTui = async (ctx: ExtensionContext): Promise<void> => {
     } else if (choice.startsWith("Recall mode:")) {
       const value = await ctx.ui.select("Recall mode", ["hybrid", "context", "tools", "off"]);
       await saveConfig({ recallMode: normalizeRecallMode(value) }, { cwd: ctx.cwd, scope });
-    } else if (choice.startsWith("Retain mode:")) {
-      const value = await ctx.ui.select("Retain mode", ["response", "step-batch", "both", "off"]);
-      await saveConfig({ retainMode: value as any }, { cwd: ctx.cwd, scope });
     }
 
     const updated = await resolveConfig(ctx.cwd);
@@ -509,14 +497,12 @@ const statusText = async (ctx: ExtensionContext): Promise<string> => {
     `Reflect dynamic budget: ${config.dialecticDynamic ? "on" : "off"}`,
     `Reasoning level: ${config.reasoningLevel}`,
     `Reasoning cap: ${config.reasoningLevelCap ?? "(none)"}`,
-    `Write frequency: ${config.writeFrequency}`,
-    `Retain mode: ${config.retainMode}`,
+    `Write frequency: ${config.writeFrequency} (turn = after each turn, session = on session boundary only, async = after each message, N = every N turns)`,
     `Session retain: ${(meta?.retained ?? true) ? "enabled" : "disabled"}`,
     `Session tags: ${meta?.tags?.length ? meta.tags.join(", ") : "(none)"}`,
     `Queue: ${queue.records.length} auto record(s), ${queue.malformed} malformed`,
     `Last flush: ${flushState.lastFlushAt ?? "never"}`,
     `Last flush error: ${flushState.lastFlushError ?? "none"}`,
-    `Step retain threshold: ${config.stepRetainThreshold}`,
     `Auto-create bank: ${config.autoCreateBank ? "yes" : "no"}`,
     `Injection: ${config.injectionFrequency}`,
     `Recall freshness: queried fresh from current user prompt each turn (no session cache)`,
@@ -585,7 +571,7 @@ export const registerCommands = (pi: ExtensionAPI): void => {
           if (source.data.globalBankId || source.data.global_bank) lines.push(`  globalBankId: ${source.data.globalBankId ?? source.data.global_bank}`);
           if (source.data.bankStrategy) lines.push(`  bankStrategy: ${source.data.bankStrategy}`);
           if (host?.recallMode) lines.push(`  host.pi.recallMode: ${host.recallMode}`);
-          if (host?.retainMode) lines.push(`  host.pi.retainMode: ${host.retainMode}`);
+          if (host?.writeFrequency) lines.push(`  host.pi.writeFrequency: ${host.writeFrequency}`);
         }
       }
       ctx.ui.notify(lines.join("\n"), "info");

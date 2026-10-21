@@ -1,4 +1,4 @@
-import { sanitizeCredentials } from "../upload.js";
+import { sanitizeCredentials } from "./text.js";
 
 export type RetainContentType = "text" | "thinking" | "toolCall" | "image";
 export interface RetainContentConfig {

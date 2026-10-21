@@ -10,7 +10,6 @@ export type InjectionFrequency = "every-turn" | "first-turn";
 export type SearchBudget = "low" | "mid" | "high";
 export type ReasoningLevel = "low" | "medium" | "high";
 export type RecallType = "world" | "experience" | "observation";
-export type RetainMode = "response" | "step-batch" | "both" | "off";
 export type RecallDisplayMode = "grouped" | "unified";
 export type RecallLongQueryBehavior = "skip" | "truncate";
 export type AutoRecallTagsMatch = "any" | "all" | "any_strict" | "all_strict";
@@ -34,8 +33,6 @@ export interface HostConfig {
   injectionFrequency?: InjectionFrequency;
   writeFrequency?: WriteFrequency | number;
   saveMessages?: boolean;
-  retainMode?: RetainMode;
-  stepRetainThreshold?: number;
   searchBudget?: SearchBudget;
   reflectBudget?: SearchBudget;
   dialecticDynamic?: boolean;
@@ -127,8 +124,6 @@ export interface HindsightConfig {
   injectionFrequency: InjectionFrequency;
   writeFrequency: WriteFrequency | number;
   saveMessages: boolean;
-  retainMode: RetainMode;
-  stepRetainThreshold: number;
   searchBudget: SearchBudget;
   reflectBudget: SearchBudget;
   dialecticDynamic: boolean;
@@ -250,18 +245,6 @@ const normalizeAutoRecallTagsMatch = (value: unknown): AutoRecallTagsMatch => {
       return value;
     default:
       return "any";
-  }
-};
-
-const normalizeRetainMode = (value: unknown): RetainMode => {
-  switch (value) {
-    case "response":
-    case "step-batch":
-    case "both":
-    case "off":
-      return value;
-    default:
-      return "response";
   }
 };
 
@@ -459,8 +442,6 @@ export const resolveConfig = async (cwd?: string): Promise<HindsightConfig> => {
     injectionFrequency: normalizeInjectionFrequency(process.env.HINDSIGHT_INJECTION_FREQUENCY ?? host.injectionFrequency ?? "every-turn"),
     writeFrequency: normalizeWriteFrequency(process.env.HINDSIGHT_WRITE_FREQUENCY ?? host.writeFrequency),
     saveMessages: boolOr(process.env.HINDSIGHT_SAVE_MESSAGES ?? host.saveMessages, true),
-    retainMode: normalizeRetainMode(process.env.HINDSIGHT_RETAIN_MODE ?? host.retainMode),
-    stepRetainThreshold: intOr(process.env.HINDSIGHT_STEP_RETAIN_THRESHOLD ?? host.stepRetainThreshold, 5),
     searchBudget: normalizeBudget(process.env.HINDSIGHT_SEARCH_BUDGET ?? host.searchBudget, "mid"),
     reflectBudget: normalizeBudget(process.env.HINDSIGHT_REFLECT_BUDGET ?? host.reflectBudget, "low"),
     dialecticDynamic: boolOr(process.env.HINDSIGHT_DIALECTIC_DYNAMIC ?? host.dialecticDynamic, true),
@@ -521,8 +502,6 @@ export const saveConfig = async (input: {
   injectionFrequency?: InjectionFrequency;
   writeFrequency?: WriteFrequency | number;
   saveMessages?: boolean;
-  retainMode?: RetainMode;
-  stepRetainThreshold?: number;
   toolPreviewLength?: number;
   maxMessageLength?: number;
   showRecallIndicator?: boolean;
@@ -604,8 +583,6 @@ export const saveConfig = async (input: {
         injectionFrequency: input.injectionFrequency ?? current.host?.pi?.injectionFrequency,
         writeFrequency: input.writeFrequency ?? current.host?.pi?.writeFrequency,
         saveMessages: input.saveMessages ?? current.host?.pi?.saveMessages,
-        retainMode: input.retainMode ?? current.host?.pi?.retainMode,
-        stepRetainThreshold: input.stepRetainThreshold ?? current.host?.pi?.stepRetainThreshold,
         toolPreviewLength: input.toolPreviewLength ?? current.host?.pi?.toolPreviewLength,
         maxMessageLength: input.maxMessageLength ?? current.host?.pi?.maxMessageLength,
         recallMaxQueryChars: input.recallMaxQueryChars ?? current.host?.pi?.recallMaxQueryChars,

@@ -42,7 +42,7 @@ Project-local override also supported:
       "contextRefreshMessageThreshold": 8,
       "contextCadence": 1,
       "injectionFrequency": "every-turn",
-      "writeFrequency": "async",
+      "writeFrequency": "turn",
       "saveMessages": true,
       "searchBudget": "mid",
       "reflectBudget": "low",
@@ -112,7 +112,7 @@ Recommended default:
 | `contextRefreshMessageThreshold` | `8` | refresh after enough new messages uploaded |
 | `contextCadence` | `1` | minimum turns between active refreshes |
 | `injectionFrequency` | `every-turn` | inject every turn or first turn only |
-| `writeFrequency` | `async` | flush mode for retain uploads |
+| `writeFrequency` | `turn` | when queued writes leave the local queue: `turn` (after each turn), `session` (only on session boundary), `async` (after each message), or a positive integer N (every N turns) |
 | `saveMessages` | `true` | upload turn content to Hindsight |
 | `searchBudget` | `mid` | default recall budget |
 | `reflectBudget` | `low` | default reflect budget |
@@ -145,7 +145,7 @@ Proposed env var contract:
 | `HINDSIGHT_CONTEXT_REFRESH_MESSAGE_THRESHOLD` | `host.pi.contextRefreshMessageThreshold` |
 | `HINDSIGHT_CONTEXT_CADENCE` | `host.pi.contextCadence` |
 | `HINDSIGHT_INJECTION_FREQUENCY` | `host.pi.injectionFrequency` |
-| `HINDSIGHT_WRITE_FREQUENCY` | `host.pi.writeFrequency` |
+| `HINDSIGHT_WRITE_FREQUENCY` | `host.pi.writeFrequency` (`turn` / `session` / `async` / N) |
 | `HINDSIGHT_SAVE_MESSAGES` | `host.pi.saveMessages` |
 | `HINDSIGHT_SEARCH_BUDGET` | `host.pi.searchBudget` |
 | `HINDSIGHT_REFLECT_BUDGET` | `host.pi.reflectBudget` |
@@ -175,7 +175,7 @@ Recommended MVP defaults:
   "contextRefreshMessageThreshold": 8,
   "contextCadence": 1,
   "injectionFrequency": "every-turn",
-  "writeFrequency": "async",
+  "writeFrequency": "turn",
   "saveMessages": true,
   "searchBudget": "mid",
   "reflectBudget": "low",
@@ -194,7 +194,7 @@ Implementation should enforce:
 - `searchBudget` and `reflectBudget` limited to `low | mid | high`
 - `reasoningLevel` and `reasoningLevelCap` limited to `low | medium | high`
 - `recallTypes` limited to `world | experience | observation`
-- `writeFrequency` allowed values: `async | turn | session | positive integer`
+- `writeFrequency` allowed values: `turn | session | async | positive integer`; `turn` is the default and the only mode that flushes mid-session without extra requests
 - `injectionFrequency` allowed values: `every-turn | first-turn`
 - `bankStrategy` and `recallMode` must be normalized to supported values
 

@@ -10,7 +10,7 @@ Transparent long-term memory for [pi](https://github.com/mariozechner/pi) powere
 
 - Fresh recall per user turn; no stale cached memory context.
 - Hidden `hindsight-recall` context is filtered so old recalls do not leak back to the model.
-- Durable `message_end` retention queue (JSONL on disk, uploaded by `/hindsight:flush`, session switch, or shutdown) using Hindsight `retainBatch`.
+- Durable `message_end` retention queue (JSONL on disk, uploaded after each turn by default, plus `/hindsight:flush` and session boundaries) using Hindsight `retainBatch`.
 - Session-document append with stable document ids.
 - Tags and observation scopes for project/user/session separation.
 - One-bank + tags/scopes recommended; multiple banks supported for hard privacy boundaries.
@@ -218,6 +218,7 @@ Most-used subset; the full table is in [`docs/config.md`](docs/config.md#environ
 | `HINDSIGHT_RECALL_MODE` | `hybrid` \| `tools` \| `off` |
 | `HINDSIGHT_AUTO_CREATE_BANK` | Create missing banks on connect |
 | `HINDSIGHT_OBSERVATION_SCOPES` | JSON scopes: keyword or list of tag groups (e.g. `[["{project}"]]`) |
+| `HINDSIGHT_WRITE_FREQUENCY` | `turn` (default) \| `session` \| `async` \| N turns |
 | `HINDSIGHT_QUEUE_ROOT` | Override the queue directory (default `~/.hindsight/pi-queues`) |
 
 Precedence: `HINDSIGHT_*` env vars > project `.hindsight/config.*` > global `~/.hindsight/config.*` > defaults.
@@ -230,6 +231,8 @@ Precedence: `HINDSIGHT_*` env vars > project `.hindsight/config.*` > global `~/.
 - Auto recall is ephemeral by default (`autoRecallPersist=false`).
 - Recall indicators are UI-only by default.
 - Retention excludes Hindsight tool feedback and meta-memory inspection prompts.
+- Queued writes leave after every turn (`writeFrequency=turn`), without blocking the turn with server-side extraction.
+- `writeFrequency=session` batches a whole session into one upload; `async` uploads after every message; an integer N uploads every N turns.
 - `#nomem` and `#skip` opt a turn out of auto-retain.
 
 ## Troubleshooting
@@ -250,12 +253,15 @@ Either `autoCreateBank` is off, or the derived bank id differs from what you exp
 Check `Recall mode` and `Recall tags` in `/hindsight:status`; tags narrow results a lot. `/hindsight:popup` shows the exact last result set, and `/hindsight:sync` forces a refetch on the next turn.
 
 **Retention seems to lag or drop writes.**
-Retention is queue-only until a flush point. `message_end` appends to a per-session JSONL queue (`~/.hindsight/pi-queues`), and the batch is uploaded on `/hindsight:flush`, when you switch sessions, and on shutdown. If you want memories visible in Hindsight immediately, run `/hindsight:flush`. `/hindsight:status` shows `Queue: N auto record(s)`, `Last flush`, and `Last flush error`.
+`message_end` first appends to a per-session JSONL queue (`~/.hindsight/pi-queues`) and the queue is uploaded at the `writeFrequency` flush point (after each turn by default), plus `/hindsight:flush`, session switch, and shutdown. Check `/hindsight:status`: `Queue: N auto record(s)` means records are still waiting, `Last flush error` explains a failed upload. Run `/hindsight:flush` to push them right now.
+
+**Writes succeed but recall finds nothing.**
+`retain` returning 200 does not guarantee memories. Hindsight extracts facts from the uploaded text, so a trivial turn ("ok", a test prompt) creates a document with `memory_unit_count: 0` and no searchable memories. Verify with `/hindsight:status` (`Memories`), or check that the records carry your expected tags.
 
 ## Known limitations
 
-- Nothing drains the retention queue during a session: `writeFrequency`, `retainMode`, and `stepRetainThreshold` are still surfaced in `/hindsight:settings` and `/hindsight:status`, but no code consumes them. Writes only leave the queue on `/hindsight:flush`, session switch, or shutdown.
-- Flushing only covers the session being flushed. Records left behind by a killed process stay in `~/.hindsight/pi-queues` until you open that session and run `/hindsight:flush`.
+- Flushes are serialized per process, not across processes: if two pi sessions write to the same document id at the same moment, they queue separate records and each flush uploads its own file.
+- Flushing covers the current session. Records left behind by a killed process stay in `~/.hindsight/pi-queues` until you reopen that session (any boundary flush) or run `/hindsight:flush` there.
 - `contextRefreshTtlSeconds` is deprecated (recall is fresh per turn) and only remains for old config files.
 
 ## Persisted recall caveat
@@ -299,7 +305,7 @@ npm pack          # local tarball, also runs typecheck + tests via prepublishOnl
 
 - 每轮用户提问都重新 recall，不使用会过期的缓存记忆。
 - 历史 `hindsight-recall` 消息会被过滤掉，避免旧记忆反复影响模型。
-- 基于 `message_end` 的持久化写入队列（落盘 JSONL，在 `/hindsight:flush`、切换会话或退出时上传），调用 Hindsight `retainBatch`。
+- 基于 `message_end` 的持久化写入队列（落盘 JSONL，默认每轮结束上传，另有 `/hindsight:flush` 与会话边界兜底），调用 Hindsight `retainBatch`。
 - 按会话文档追加写入，document id 稳定，重复回放不会产生重复文档。
 - 用 tags + observation scopes 区分项目、用户、会话。
 - 推荐"一个 bank + 标签/作用域"；确实需要隔离（工作/个人、不同客户）时才用多 bank。
@@ -493,6 +499,7 @@ Hindsight 0.5.5（`api_version` 1.0.0）删除了 bank profile 接口，0.4.0 �
 | `HINDSIGHT_RECALL_MODE` | `hybrid` \| `tools` \| `off` |
 | `HINDSIGHT_AUTO_CREATE_BANK` | 连接时自动创建缺失的 bank |
 | `HINDSIGHT_OBSERVATION_SCOPES` | JSON 格式作用域（关键字或标签组） |
+| `HINDSIGHT_WRITE_FREQUENCY` | `turn`（默认）\| `session` \| `async` \| 每 N 轮 |
 | `HINDSIGHT_QUEUE_ROOT` | 覆盖队列目录（默认 `~/.hindsight/pi-queues`） |
 
 优先级：`HINDSIGHT_*` 环境变量 > 项目 `.hindsight/config.*` > 全局 `~/.hindsight/config.*` > 默认值。
@@ -506,6 +513,8 @@ Hindsight 0.5.5（`api_version` 1.0.0）删除了 bank profile 接口，0.4.0 �
 - 指标提示默认只在 UI 显示，不进入模型上下文。
 - 写入时会排除 Hindsight 工具自身的反馈，以及检查记忆的提示词。
 - `#nomem`、`#skip` 可以让某一轮不自动写入。
+- 队列默认在**每轮结束**上传（`writeFrequency=turn`），且不阻塞这一轮（服务端抽取事实很慢）。
+- `writeFrequency=session` 是整个会话攒成一次上传；`async` 每条消息上传一次；整数 N 是每 N 轮上传一次。
 
 ### 排错
 
@@ -525,12 +534,15 @@ Hindsight 0.5.5（`api_version` 1.0.0）删除了 bank profile 接口，0.4.0 �
 检查 `/hindsight:status` 里的 `Recall mode` 和 `Recall tags`，标签会大幅收窄结果。`/hindsight:popup` 看最近一次原始结果，`/hindsight:sync` 强制下一轮重新检索。
 
 **写入像是有延迟或丢失。**
-写入是"先入队、到冲刷点才上传"：`message_end` 只把记录追加到每个会话的 JSONL 队列（`~/.hindsight/pi-queues`），真正上传发生在 `/hindsight:flush`、切换会话和退出 pi 时。想让记忆立刻出现在 Hindsight 里，就执行 `/hindsight:flush`。`/hindsight:status` 会显示 `Queue: N auto record(s)`、`Last flush`、`Last flush error`。
+`message_end` 先把记录追加到每个会话的 JSONL 队列（`~/.hindsight/pi-queues`），队列在 `writeFrequency` 指定的冲刷点上传（默认每轮结束），外加 `/hindsight:flush`、切换会话和退出时的兜底。看 `/hindsight:status`：`Queue: N auto record(s)` 说明还有记录在等，`Last flush error` 说明上传失败。想立刻推送就执行 `/hindsight:flush`。
+
+**写入成功但 recall 搜不到。**
+`retain` 返回 200 不代表产生记忆。Hindsight 会从上传文本里抽取事实，所以空转的一轮（"ok"、测试提示）只会建出 `memory_unit_count: 0` 的 document，搜不到任何东西。用 `/hindsight:status` 的 `Memories` 或标签验证。
 
 ### 已知限制
 
-- 会话进行中没有东西会自动冲刷写入队列：`writeFrequency`、`retainMode`、`stepRetainThreshold` 仍会出现在 `/hindsight:settings` 和 `/hindsight:status` 里，但没有代码消费它们。记录只在 `/hindsight:flush`、切换会话、退出 pi 时才真正上传。
-- 冲刷只覆盖被冲刷的那个会话。进程被强杀时留在 `~/.hindsight/pi-queues` 的记录，要等你重新打开那个会话并执行 `/hindsight:flush` 才会写入。
+- 冲刷只在进程内串行，不跨进程：两个 pi 会话同时往同一个 document id 写入时，各自入队、各自上传。
+- 冲刷只覆盖当前会话。进程被强杀时留在 `~/.hindsight/pi-queues` 的记录，要等你重新打开那个会话（任一边界冲刷）或在那里执行 `/hindsight:flush` 才会写入。
 - `contextRefreshTtlSeconds` 已废弃（recall 每轮重新检索），仅为兼容旧配置保留。
 
 ### 卸装注意

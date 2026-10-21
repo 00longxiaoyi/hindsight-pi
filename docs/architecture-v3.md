@@ -7,6 +7,7 @@
 - The canonical recall custom message type is `hindsight-recall`.
 - Old `hindsight-recall` messages are filtered from provider context, including disabled mode.
 - Retention queues structured JSON records at `message_end`.
+- Queued records are flushed per `writeFrequency`, without blocking the turn: `turn` (default) flushes after every agent turn, `async` after every message, `session` only at a session boundary, and a numeric value N flushes every N turns. See `docs/architecture-v3.md#flush-policy`.
 - Retention writes use `retainBatch`, including single-item writes, because observation scopes are supported there.
 - Recommended memory model is one bank plus tags/observation scopes. Multiple banks are reserved for hard boundaries.
 
@@ -44,6 +45,23 @@ Queued records include:
 - session start timestamp
 - automatic tags
 - expanded observation scopes
+
+### Flush policy
+
+The queue is durable on disk (`~/.hindsight/pi-queues/<session>.auto.jsonl`), so a killed process never loses records. Draining it is driven by `writeFrequency`:
+
+| `writeFrequency` | Flush trigger | Requests per session |
+|---|---|---|
+| `turn` (default) | end of every agent turn | one per turn |
+| `async` | end of every queued message | one per message |
+| `session` | session boundary only | one per session |
+| `N` (integer) | every N turns | one per N turns |
+
+Session boundaries (`session_before_switch`, `session_before_fork`, `session_before_compact`, `session_shutdown`) and `/hindsight:flush` always flush, regardless of `writeFrequency`; that is the durability floor.
+
+Mid-session flushes are fire-and-forget and coalesce: `retainBatch({ async: false })` waits for server-side extraction, so awaiting it at the end of a turn would stall the UI. While a flush is in flight, further triggers collapse into a single trailing run (`extensions/flush-runner.ts`). Boundary flushes do wait, so the queue reaches the server before the process exits.
+
+The queue file is deleted only after a successful upload, so a failed flush is retried by the next trigger.
 
 ## Tags and scopes
 
